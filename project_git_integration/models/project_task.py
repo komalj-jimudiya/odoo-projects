@@ -3,6 +3,10 @@
 from odoo import models, fields, api
 from odoo.exceptions import UserError
 import requests
+from dateutil import parser
+import pytz
+
+
 
 class ProjectTask(models.Model):
     _inherit = 'project.task'
@@ -28,8 +32,128 @@ class ProjectTask(models.Model):
     git_branch_last_synced = fields.Datetime(string="Last Synced On")
     
     commit_ids = fields.One2many('git.commit.log', 'task_id', string="Commits")
+    pr_ids = fields.One2many('git.pull.request', 'task_id', string="Pull Requests")
+
+    def action_fetch_pull_requests(self):
+        """
+        Fetches pull requests from GitHub filtered by the task's dev branch.
+        """
+        self.ensure_one()
+        
+        # Check if project is linked
+        if not self.project_id.git_repository_name:
+             raise UserError("The project must be linked to a GitHub repository first.")
+
+        # Get Token
+        github_token = self.env['ir.config_parameter'].sudo().get_param('project_git_integration.github_token')
+        if not github_token:
+            raise UserError("No GitHub Token found. Please configure it in General Settings.")
+
+        # Determine Branch
+        branch_name = self.git_dev_branch
+        if not branch_name:
+             raise UserError("No Dev Branch specified to filter Pull Requests.")
+
+        # GitHub API Headers
+        headers = {
+            "Authorization": f"Bearer {github_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"
+        }
+
+        owner = self.project_id.git_repository_owner
+        repo = self.project_id.git_repository_name
+        
+        # API URL to list PRs
+        # Filter by head={owner}:{branch_name}
+        # Note: head parameter expects 'user:branch-name' or 'branch-name' for same repo
+        url = f"https://api.github.com/repos/{owner}/{repo}/pulls"
+        params = {
+            'head': f"{owner}:{branch_name}", # Filter by exact source branch
+            'state': 'all', # open, closed, merged (merged are closed with merged_at set)
+            'per_page': 100
+        }
+
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            
+            # Fallback: if no PRs found with owner:branch, try with just branch name
+            if response.status_code == 200 and not response.json():
+                 params['head'] = branch_name
+                 response = requests.get(url, headers=headers, params=params, timeout=10)
+                 
+        except requests.exceptions.RequestException as e:
+
+             raise UserError(f"Network error fetching Pull Requests: {str(e)}")
+
+        if response.status_code == 200:
+            prs_data = response.json()
+            
+            existing_prs = self.pr_ids.mapped('pr_number')
+            new_prs = []
+            
+            for pr in prs_data:
+                number = pr.get('number')
+                if number in existing_prs:
+                    # Update existing? For now, skip or maybe update status
+                    # To allow updates, we'd need to fetch the record and write. 
+                    # Let's simple skip creation for now as per prompt "assign field value automatically"
+                    continue
+                
+                # Parsing dates
+                created_on = parser.parse(pr.get('created_at')).astimezone(pytz.UTC).replace(tzinfo=None) if pr.get('created_at') else False
+                merged_on = parser.parse(pr.get('merged_at')).astimezone(pytz.UTC).replace(tzinfo=None) if pr.get('merged_at') else False
+                
+                # Status mapping
+                status = pr.get('state') # open, closed
+                if pr.get('merged_at'):
+                    status = 'merged'
+                
+                # Try to find user
+                user_id = False
+                user_login = pr.get('user', {}).get('login')
+                # Simple lookup by login name if we stored it somewhere, or maybe email if exposed (usually not in list view)
+                # Here we will leave it empty unless we want to search res.users by name/login
+                
+                vals = {
+                    'pr_number': number,
+                    'pr_title': pr.get('title'),
+                    'pr_url': pr.get('html_url'),
+                    'pr_status': status,
+                    'pr_source_branch': pr.get('head', {}).get('ref'),
+                    'pr_target_branch': pr.get('base', {}).get('ref'),
+                    'pr_created_on': created_on,
+                    'pr_merged_on': merged_on,
+                    'task_id': self.id
+                }
+                new_prs.append(vals)
+            
+            if new_prs:
+                self.env['git.pull.request'].create(new_prs)
+            
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'Success',
+                    'message': f'{len(new_prs)} Pull Requests fetched successfully!',
+                    'type': 'success',
+                    'sticky': False,
+                    'next': {'type': 'ir.actions.client', 'tag': 'reload'},
+                }
+            }
+        else:
+            error_msg = response.text
+            try:
+                error_json = response.json()
+                if 'message' in error_json:
+                    error_msg = error_json['message']
+            except ValueError:
+                pass
+            raise UserError(f"GitHub API Error ({response.status_code}): {error_msg}")
 
     def action_fetch_commits(self):
+
         """
         Fetches commits from the linked GitHub branch for this task.
         """
@@ -92,8 +216,10 @@ class ProjectTask(models.Model):
                     'commit_hash': sha,
                     'commit_message': commit_info.get('message'),
                     'commit_author': author_info.get('name'),
-                    'commit_date': author_info.get('date'), # ISO 8601 format, Odoo handles it
+                    'commit_date': parser.parse(author_info.get('date')).astimezone(pytz.UTC).replace(tzinfo=None),
                     'commit_url': commit.get('html_url'),
+
+
                     'branch_name': branch_name,
                     'task_id': self.id
                 }

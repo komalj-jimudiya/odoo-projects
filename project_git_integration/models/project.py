@@ -103,7 +103,6 @@ class ProjectProject(models.Model):
 		Searches for an existing GitHub repository with the same name as the project
 		and links it if found.
 		"""
-		print("action_git_assign_repo---------------------")
 		self.ensure_one()
 
 		# 1. Get Token
