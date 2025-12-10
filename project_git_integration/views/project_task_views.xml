@@ -1,0 +1,68 @@
+<odoo>
+  <data>
+
+    <record id="view_task_form2_git" model="ir.ui.view">
+        <field name="name">project.task.git.fields</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_form2"/>
+        <field name="arch" type="xml">
+             <xpath expr="//notebook" position="inside">
+                <page string="Git Logs">
+                  
+                    <separator string="Commits"/>
+
+                    <field name="commit_ids">
+                        <list create="0" delete="0" edit="0">
+                            <field name="commit_date"/>
+                            <field name="commit_author"/>
+                            <field name="commit_message"/>
+                            <field name="commit_hash"/>
+                            <field name="branch_name"/>
+                            <field name="commit_url" widget="url"/>
+                        </list>
+
+                    </field>
+                    <separator string="Pull Requests"/>
+                    <field name="pr_ids">
+                        <list string="Pull Requests" create="0" delete="0" edit="0">
+                            <field name="pr_number" string="#"/>
+                            <field name="pr_title"/>
+                            <field name="pr_status" widget="badge" decoration-success="pr_status=='merged'" decoration-info="pr_status=='open'" decoration-muted="pr_status=='closed'"/>
+                            <field name="pr_source_branch"/>
+                            <field name="pr_target_branch"/>
+                            <field name="pr_created_on"/>
+                            <field name="pr_created_by"/>
+                            <field name="pr_url" widget="url"/>
+                        </list>
+
+                    </field>
+
+                </page>
+                <page string="Git Integration" >
+                    <group>
+                        <group>
+                            <field name="git_dev_branch" readonly="1"/>
+                            <field name="git_dev_branch_url" widget="url" readonly="1"/>
+                            <field name="git_commit_branch" readonly="1"/>
+                            <field name="git_commit_branch_url" widget="url" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="git_branch_status" readonly="1"/>
+                            <field name="git_branch_created_by" readonly="1"/>
+                            <field name="git_branch_created_on" readonly="1"/>
+                            <field name="git_branch_last_synced" readonly="1"/>
+                        </group>
+                    </group>
+                </page>
+                 
+            </xpath>
+            <xpath expr="//header" position="inside">
+                <button name="action_create_custom_branch" type="object" string="Create Custom Branch" class="oe_highlight"/>
+                <button name="action_fetch_commits" string="Git Commit" type="object" class="oe_highlight" icon="fa-github"/>
+                <button name="action_fetch_pull_requests" string="Pull Request" type="object" class="oe_highlight" icon="fa-code-fork"/>
+            </xpath>
+        </field>
+    </record>
+
+  </data>
+</odoo>
