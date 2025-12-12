@@ -1,7 +1,37 @@
 <odoo>
   <data>
 
+    <!-- Merge Request Wizard View -->
+    <record id="view_git_merge_wizard_form" model="ir.ui.view">
+        <field name="name">git.merge.wizard.form</field>
+        <field name="model">git.merge.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Create Merge Request">
+                <group>
+                    <field name="source_branch"/>
+                    <field name="target_branch"/>
+                </group>
+                <group>
+                    <field name="title"/>
+                    <field name="description"/>
+                </group>
+                <footer>
+                    <button name="action_create_merge_request" string="Create Merge Request" type="object" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_git_merge_wizard" model="ir.actions.act_window">
+        <field name="name">Create Merge Request</field>
+        <field name="res_model">git.merge.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
     <record id="view_task_form2_git" model="ir.ui.view">
+
         <field name="name">project.task.git.fields</field>
         <field name="model">project.task</field>
         <field name="inherit_id" ref="project.view_task_form2"/>
@@ -57,9 +87,12 @@
                  
             </xpath>
             <xpath expr="//header" position="inside">
+                <button name="action_git_push_code" type="object" string="Push Code" class="oe_highlight" icon="fa-cloud-upload"/>
                 <button name="action_create_custom_branch" type="object" string="Create Custom Branch" class="oe_highlight"/>
                 <button name="action_fetch_commits" string="Git Commit" type="object" class="oe_highlight" icon="fa-github"/>
+                <button name="%(action_git_merge_wizard)d" string="Merge Request" type="action" class="oe_highlight" icon="fa-code-fork"/>
                 <button name="action_fetch_pull_requests" string="Pull Request" type="object" class="oe_highlight" icon="fa-code-fork"/>
+
             </xpath>
         </field>
     </record>

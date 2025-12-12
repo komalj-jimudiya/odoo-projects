@@ -1,3 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 project_git_integration.access_git_commit_log,access_git_commit_log,project_git_integration.model_git_commit_log,,1,1,1,1
 project_git_integration.access_git_pull_request,access_git_pull_request,project_git_integration.model_git_pull_request,,1,1,1,1
+project_git_integration.access_git_merge_wizard,access_git_merge_wizard,project_git_integration.model_git_merge_wizard,,1,1,1,1

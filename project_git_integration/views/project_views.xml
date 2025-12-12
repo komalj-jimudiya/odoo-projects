@@ -17,6 +17,7 @@
                         <group>
                             <field name="git_repository_owner" readonly="1"/>
                             <field name="git_default_branch" readonly="1"/>
+                            <field name="git_project_path"/>
                             <field name="git_connection_status" readonly="1"/>
                             <field name="git_connected_on" readonly="1"/>
                         </group>

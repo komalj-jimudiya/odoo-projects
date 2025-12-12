@@ -13,5 +13,5 @@ class GitCommitLog(models.Model):
     commit_date = fields.Datetime(string="Date")
     commit_url = fields.Char(string="Commit URL")
     branch_name = fields.Char(string="Branch")
-    name = fields.Char(string="Name")
     task_id = fields.Many2one('project.task', string="Task", ondelete='cascade')
+    new_branch = fields.Char()

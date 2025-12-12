@@ -13,6 +13,7 @@ class ProjectProject(models.Model):
 	git_repository_id = fields.Char(string="Repository ID")
 	git_repository_owner = fields.Char(string="Repository Owner")
 	git_default_branch = fields.Char(string="Default Branch", default="main")
+	git_project_path = fields.Char(string="Project Path", help="Absolute path to the local git repository on the server.")
 
 	git_connection_status = fields.Selection(
 		[
