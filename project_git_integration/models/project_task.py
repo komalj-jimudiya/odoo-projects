@@ -3,6 +3,7 @@
 from odoo import models, fields, api
 from odoo.exceptions import UserError
 import requests
+import subprocess
 from dateutil import parser
 import pytz
 
@@ -75,26 +76,37 @@ class ProjectTask(models.Model):
         }
 
         try:
+            # 1. Try strict filter
             response = requests.get(url, headers=headers, params=params, timeout=10)
             
-            # Fallback: if no PRs found with owner:branch, try with just branch name
+            # 2. Broader search fallback
+            # If nothing found, fetch recent open PRs and search manually for the branch name in 'head.ref'
             if response.status_code == 200 and not response.json():
-                 params['head'] = branch_name
+
+                 del params['head'] # Remove strict filter
                  response = requests.get(url, headers=headers, params=params, timeout=10)
                  
         except requests.exceptions.RequestException as e:
 
+
              raise UserError(f"Network error fetching Pull Requests: {str(e)}")
 
-        if response.status_code == 200:
+        if response.status_code == 200: 
             prs_data = response.json()
             
             existing_prs = self.pr_ids.mapped('pr_number')
             new_prs = []
             
             for pr in prs_data:
+                # Check if this PR matches our branch
+                # Strict check on source branch name (head.ref)
+                pr_head_ref = pr.get('head', {}).get('ref')
+                if pr_head_ref != branch_name:
+                    continue
+
                 number = pr.get('number')
                 if number in existing_prs:
+
                     # Update existing? For now, skip or maybe update status
                     # To allow updates, we'd need to fetch the record and write. 
                     # Let's simple skip creation for now as per prompt "assign field value automatically"
@@ -110,6 +122,7 @@ class ProjectTask(models.Model):
                     status = 'merged'
                 
                 # Try to find user
+
                 user_id = False
                 user_login = pr.get('user', {}).get('login')
                 # Simple lookup by login name if we stored it somewhere, or maybe email if exposed (usually not in list view)
@@ -131,17 +144,32 @@ class ProjectTask(models.Model):
             if new_prs:
                 self.env['git.pull.request'].create(new_prs)
             
-            return {
-                'type': 'ir.actions.client',
-                'tag': 'display_notification',
-                'params': {
-                    'title': 'Success',
-                    'message': f'{len(new_prs)} Pull Requests fetched successfully!',
-                    'type': 'success',
-                    'sticky': False,
-                    'next': {'type': 'ir.actions.client', 'tag': 'reload'},
+            if new_prs or existing_prs:
+
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'title': 'Success',
+                        'message': f'{len(new_prs)} new Pull Requests fetched successfully!',
+                        'type': 'success',
+                        'sticky': False,
+                        'next': {'type': 'ir.actions.client', 'tag': 'reload'},
+                    }
                 }
-            }
+            else:
+                 return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'title': 'No PRs Found',
+                        'message': f'No Pull Requests found in repository "{owner}/{repo}". Checked at {url}. Ensure you have created a Pull Request on GitHub.',
+                        'type': 'warning',
+                        'sticky': True,
+                    }
+                }
+
+
         else:
             error_msg = response.text
             try:
@@ -220,9 +248,11 @@ class ProjectTask(models.Model):
                     'commit_url': commit.get('html_url'),
 
 
+
                     'branch_name': branch_name,
                     'task_id': self.id
                 }
+
                 new_commits.append(vals)
             
             if new_commits:
@@ -304,6 +334,7 @@ class ProjectTask(models.Model):
         except requests.exceptions.RequestException as e:
             raise UserError(f"Failed to fetch default branch info: {str(e)}")
 
+
         # 2. Create New Branch (Reference)
         create_ref_url = f"https://api.github.com/repos/{owner}/{repo}/git/refs"
         data = {
@@ -322,6 +353,7 @@ class ProjectTask(models.Model):
             branch_url = f"{repo_html_url}/tree/{branch_name}"
 
             self.write({
+
                 'git_dev_branch': branch_name,
                 'git_dev_branch_url': branch_url,
                 'git_commit_branch': branch_name, # Assuming same for now as requested
@@ -353,3 +385,72 @@ class ProjectTask(models.Model):
             except ValueError:
                 pass
             raise UserError(f"GitHub API Error ({create_response.status_code}): {error_msg}")
+
+    def action_git_push_code(self):
+        """
+        Pushes changes from the local project path to GitHub.
+        """
+        self.ensure_one()
+
+        # 1. Check Project Path
+        project_path = self.project_id.git_project_path
+        if not project_path:
+            raise UserError(f"Please configure the 'Project Path' in the Project settings first. (Project: {self.project_id.name})")
+
+        # 2. Get Token
+        github_token = self.env['ir.config_parameter'].sudo().get_param('project_git_integration.github_token')
+        if not github_token:
+            raise UserError("No GitHub Token found. Please configure it in General Settings.")
+
+        # 3. Construct Remote URL with Token
+        # We need to inject the token into the URL for authentication
+        # Format: https://{token}@github.com/{owner}/{repo}.git
+        owner = self.project_id.git_repository_owner
+        repo = self.project_id.git_repository_name
+        
+        if not owner or not repo:
+             raise UserError("Project is not properly linked to a GitHub repository.")
+        
+        # Determine branch to push to (Dev branch or Default)
+        branch_name = self.git_dev_branch or self.project_id.git_default_branch
+        if not branch_name:
+             branch_name = 'main'
+
+        remote_url = f"https://{github_token}@github.com/{owner}/{repo}.git"
+
+        # 4. Git Commands
+        try:
+             # git add .
+             subprocess.check_call(['git', 'add', '.'], cwd=project_path)
+             
+             # git commit -m "..."
+             commit_message = f"[{self.name}] Update from Odoo"
+             # Check if there are changes to commit first to avoid error
+             # 'git status --porcelain' returns empty string if no changes
+             status_output = subprocess.check_output(['git', 'status', '--porcelain'], cwd=project_path)
+             if status_output.strip():
+                 subprocess.check_call(['git', 'commit', '-m', commit_message], cwd=project_path)
+             
+             # git push
+             # We use the constructed remote_url. 
+             subprocess.check_call(['git', 'push', remote_url, branch_name], cwd=project_path)
+
+        except subprocess.CalledProcessError as e:
+            # Capture stderr if available
+            raise UserError(f"Git Error: {str(e)}")
+        except FileNotFoundError:
+            raise UserError(f"Directory not found: {project_path}")
+        except Exception as e:
+            raise UserError(f"An unexpected error occurred: {str(e)}")
+
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Success',
+                'message': f'Code pushed to branch "{branch_name}" successfully!',
+                'type': 'success',
+                'sticky': False,
+                'next': {'type': 'ir.actions.client', 'tag': 'reload'},
+            }
+        }

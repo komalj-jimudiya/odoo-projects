@@ -5,5 +5,7 @@ from . import res_config_settings
 from . import project_task
 from . import git_commit_log
 from . import git_pull_request
+from . import git_merge_wizard
+
 
 
